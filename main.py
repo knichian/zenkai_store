@@ -12,6 +12,9 @@ import os
 import shutil
 import json
 import uuid
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -27,7 +30,7 @@ os.makedirs("static/img", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 api_router = APIRouter(prefix='/zenkai/api')
-SECRET_KEY = "sua_chave_secreta_super_segura_32_bytes"
+SECRET_KEY = os.environ.get("SECRET_KEY")
 security = HTTPBearer()
 DB_PATH = "zenkai_database.db"
 
