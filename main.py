@@ -26,8 +26,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-os.makedirs("static/img", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# os.makedirs("static/img", exist_ok=True)
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 api_router = APIRouter(prefix='/zenkai/api')
 SECRET_KEY = os.environ.get("SECRET_KEY")
@@ -367,3 +367,6 @@ async def finalizar_compra(pedido: CheckoutPayload, user=Depends(get_user_from_t
     return {"message": "Compra finalizada com sucesso!"}
 
 app.include_router(api_router)
+
+# if (__name__ == "__main__"):
+#     app.run() 

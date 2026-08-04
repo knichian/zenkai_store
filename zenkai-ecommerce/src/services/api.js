@@ -1,4 +1,5 @@
-const BASE_URL = 'http://localhost:8000/zenkai/api';
+// const BASE_URL = 'http://localhost:8000/zenkai/api';
+const BASE_URL = '';
 
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}` });
 
