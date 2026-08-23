@@ -43,7 +43,6 @@ def init_db():
             Nome TEXT NOT NULL,
             Descricao TEXT
         );
-
         CREATE TABLE IF NOT EXISTS Cliente (
             ID_Cliente INTEGER PRIMARY KEY AUTOINCREMENT,
             Nome TEXT NOT NULL,
@@ -55,14 +54,12 @@ def init_db():
             Tipo_Cliente TEXT CHECK(Tipo_Cliente IN ('PF', 'PJ')) NOT NULL DEFAULT 'PF', 
             Role TEXT CHECK(Role IN ('CLIENTE', 'ADMIN')) NOT NULL DEFAULT 'CLIENTE'
         );
-
         CREATE TABLE IF NOT EXISTS Pessoa_Fisica (
             ID_Cliente INTEGER PRIMARY KEY,
             CPF TEXT UNIQUE NOT NULL,
             Data_Nascimento DATE,
             FOREIGN KEY (ID_Cliente) REFERENCES Cliente(ID_Cliente) ON DELETE CASCADE
         );
-
         CREATE TABLE IF NOT EXISTS Pessoa_Juridica (
             ID_Cliente INTEGER PRIMARY KEY,
             CNPJ TEXT UNIQUE NOT NULL,
@@ -70,7 +67,6 @@ def init_db():
             Inscricao_Estadual TEXT,
             FOREIGN KEY (ID_Cliente) REFERENCES Cliente(ID_Cliente) ON DELETE CASCADE
         );
-
         CREATE TABLE IF NOT EXISTS Produto (
             ID_Produto INTEGER PRIMARY KEY AUTOINCREMENT,
             ID_Categoria INTEGER,
@@ -82,7 +78,6 @@ def init_db():
             imagem TEXT,
             FOREIGN KEY (ID_Categoria) REFERENCES Categoria(ID_Categoria)
         );
-
         CREATE TABLE IF NOT EXISTS Pedido (
             ID_Pedido INTEGER PRIMARY KEY AUTOINCREMENT,
             ID_Cliente INTEGER NOT NULL,
@@ -91,7 +86,6 @@ def init_db():
             Valor_Total REAL NOT NULL,
             FOREIGN KEY (ID_Cliente) REFERENCES Cliente(ID_Cliente)
         );
-
         CREATE TABLE IF NOT EXISTS ItensPedido (
             ID_Pedido INTEGER NOT NULL,
             ID_Produto INTEGER NOT NULL,
@@ -102,7 +96,6 @@ def init_db():
             FOREIGN KEY (ID_Pedido) REFERENCES Pedido(ID_Pedido) ON DELETE CASCADE,
             FOREIGN KEY (ID_Produto) REFERENCES Produto(ID_Produto)
         );
-
         CREATE TABLE IF NOT EXISTS Pagamento (
             ID_Pagamento INTEGER PRIMARY KEY AUTOINCREMENT,
             ID_Pedido INTEGER NOT NULL,
@@ -112,7 +105,6 @@ def init_db():
             Tipo_Pagamento TEXT CHECK(Tipo_Pagamento IN ('CARTAO', 'PIX', 'DINHEIRO')) NOT NULL,
             FOREIGN KEY (ID_Pedido) REFERENCES Pedido(ID_Pedido)
         );
-
         CREATE TABLE IF NOT EXISTS Pagamento_Cartao (
             ID_Pagamento INTEGER PRIMARY KEY,
             Numero_Cartao TEXT NOT NULL, 
@@ -120,7 +112,6 @@ def init_db():
             Parcelas INTEGER NOT NULL DEFAULT 1,
             FOREIGN KEY (ID_Pagamento) REFERENCES Pagamento(ID_Pagamento) ON DELETE CASCADE
         );
-
         CREATE TABLE IF NOT EXISTS Pagamento_Pix (
             ID_Pagamento INTEGER PRIMARY KEY,
             Chave_Pix TEXT NOT NULL,
@@ -142,6 +133,7 @@ class UsuarioAuth(BaseModel):
     nome: Optional[str] = None
     email: str
     senha: str
+    telefone: Optional[str] = None
     role: str = "CLIENTE"
 
 class ItemCarrinho(BaseModel):
@@ -150,9 +142,8 @@ class ItemCarrinho(BaseModel):
     quantidade: int
     preco_unitario: float
 
-# NOVAS CLASSES DE PAGAMENTO PDV
 class PagamentoInfo(BaseModel):
-    metodo: str  # DINHEIRO, CARTAO, PIX
+    metodo: str
     valor_recebido: float
     parcelas: Optional[int] = 1
 
@@ -174,8 +165,8 @@ async def cadastrar(user: UsuarioAuth):
     hash_senha = bcrypt.hashpw(user.senha.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     conn = get_db()
     try:
-        conn.execute("INSERT INTO Cliente (Nome, Email, Senha, Role) VALUES (?, ?, ?, ?)",
-                     (user.nome, user.email, hash_senha, user.role))
+        conn.execute("INSERT INTO Cliente (Nome, Email, Senha, Telefone, Role) VALUES (?, ?, ?, ?, ?)",
+                     (user.nome, user.email, hash_senha, user.telefone, user.role))
         conn.commit()
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
@@ -188,7 +179,6 @@ async def login(user: UsuarioAuth):
     conn = get_db()
     user_db = conn.execute("SELECT * FROM Cliente WHERE Email = ?", (user.email,)).fetchone()
     conn.close()
-
     if not user_db or not bcrypt.checkpw(user.senha.encode('utf-8'), user_db["Senha"].encode('utf-8')):
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
     
@@ -206,8 +196,7 @@ async def listar_produtos():
         SELECT p.ID_Produto as id, p.Nome as nome, p.Descricao as descricao, 
                p.Preco_Atual as preco, p.Quantidade_Estoque as estoque, 
                p.tamanhos, p.imagem, c.Nome as categoria 
-        FROM Produto p 
-        LEFT JOIN Categoria c ON p.ID_Categoria = c.ID_Categoria
+        FROM Produto p LEFT JOIN Categoria c ON p.ID_Categoria = c.ID_Categoria
     """
     produtos = conn.execute(query).fetchall()
     conn.close()
@@ -220,14 +209,12 @@ async def obter_produto(id: int):
         SELECT p.ID_Produto as id, p.Nome as nome, p.Descricao as descricao, 
                p.Preco_Atual as preco, p.Quantidade_Estoque as estoque, 
                p.tamanhos, p.imagem, c.Nome as categoria 
-        FROM Produto p 
-        LEFT JOIN Categoria c ON p.ID_Categoria = c.ID_Categoria
+        FROM Produto p LEFT JOIN Categoria c ON p.ID_Categoria = c.ID_Categoria
         WHERE p.ID_Produto = ?
     """
     produto = conn.execute(query, (id,)).fetchone()
     conn.close()
-    if not produto:
-        raise HTTPException(status_code=404, detail="Produto não localizado.")
+    if not produto: raise HTTPException(status_code=404, detail="Produto não localizado.")
     return dict(produto)
 
 @api_router.post('/produtos/cadastro')
@@ -237,7 +224,6 @@ async def cadastrar_produto(
     imagem: Optional[UploadFile] = File(None), user=Depends(get_user_from_token)
 ):
     if user.get("role") != "ADMIN": raise HTTPException(status_code=403)
-    
     img_path = None
     if imagem:
         filename = f"prod_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.{imagem.filename.split('.')[-1]}"
@@ -247,18 +233,12 @@ async def cadastrar_produto(
 
     conn = get_db()
     cursor = conn.cursor()
-    
     cursor.execute("SELECT ID_Categoria FROM Categoria WHERE Nome = ?", (categoria,))
     cat = cursor.fetchone()
-    if cat:
-        cat_id = cat["ID_Categoria"]
-    else:
-        cursor.execute("INSERT INTO Categoria (Nome) VALUES (?)", (categoria,))
-        cat_id = cursor.lastrowid
+    cat_id = cat["ID_Categoria"] if cat else cursor.execute("INSERT INTO Categoria (Nome) VALUES (?)", (categoria,)).lastrowid
 
     cursor.execute(
-        """INSERT INTO Produto (Nome, Descricao, Preco_Atual, Quantidade_Estoque, tamanhos, imagem, ID_Categoria) 
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        "INSERT INTO Produto (Nome, Descricao, Preco_Atual, Quantidade_Estoque, tamanhos, imagem, ID_Categoria) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (nome, descricao, preco, estoque, tamanhos, img_path, cat_id)
     )
     conn.commit()
@@ -274,7 +254,6 @@ async def deletar_produto(id: int, user=Depends(get_user_from_token)):
     conn.close()
     return {"message": "Deletado"}
 
-# NOVA ROTA: BUSCA DE CLIENTES CRM
 @api_router.get('/clientes/buscar')
 async def buscar_cliente(q: str, user=Depends(get_user_from_token)):
     if user.get("role") != "ADMIN": raise HTTPException(status_code=403)
@@ -284,14 +263,58 @@ async def buscar_cliente(q: str, user=Depends(get_user_from_token)):
     conn.close()
     return [dict(c) for c in clientes]
 
+# NOVA ROTA: DASHBOARD ANALÍTICO
+@api_router.get('/dashboard')
+async def obter_dashboard(user=Depends(get_user_from_token)):
+    if user.get("role") != "ADMIN": raise HTTPException(status_code=403)
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Faturamento Hoje
+    cursor.execute("SELECT SUM(Valor_Total) as total FROM Pedido WHERE date(Data_Pedido) = date('now')")
+    faturamento_hoje = cursor.fetchone()["total"] or 0.0
+
+    # Faturamento Mês Atual
+    cursor.execute("SELECT SUM(Valor_Total) as total FROM Pedido WHERE strftime('%Y-%m', Data_Pedido) = strftime('%Y-%m', 'now')")
+    faturamento_mes = cursor.fetchone()["total"] or 0.0
+
+    # Ticket Médio Mensal
+    cursor.execute("SELECT AVG(Valor_Total) as media FROM Pedido WHERE strftime('%Y-%m', Data_Pedido) = strftime('%Y-%m', 'now')")
+    ticket_medio = cursor.fetchone()["media"] or 0.0
+
+    # Formas de Pagamento no Mês
+    cursor.execute("SELECT Tipo_Pagamento, SUM(Valor) as total FROM Pagamento WHERE strftime('%Y-%m', Data_Hora) = strftime('%Y-%m', 'now') GROUP BY Tipo_Pagamento")
+    pagamentos_db = cursor.fetchall()
+    pagamentos = {p["Tipo_Pagamento"]: p["total"] for p in pagamentos_db}
+
+    # Top 5 Produtos mais Vendidos
+    cursor.execute("""
+        SELECT p.Nome, SUM(i.Quantidade) as qtd 
+        FROM ItensPedido i JOIN Produto p ON i.ID_Produto = p.ID_Produto 
+        GROUP BY i.ID_Produto ORDER BY qtd DESC LIMIT 5
+    """)
+    top_produtos = [{"nome": row["Nome"], "qtd": row["qtd"]} for row in cursor.fetchall()]
+
+    conn.close()
+    return {
+        "faturamento_hoje": faturamento_hoje,
+        "faturamento_mes": faturamento_mes,
+        "ticket_medio": ticket_medio,
+        "pagamentos": pagamentos,
+        "top_produtos": top_produtos
+    }
+
 @api_router.post('/checkout')
 async def finalizar_compra(pedido: CheckoutPayload, user=Depends(get_user_from_token)):
+    # TRAVA DE SEGURANÇA BACKEND (Bloqueia requisições forjadas)
+    if pedido.desconto > (pedido.total * 0.5):
+        raise HTTPException(status_code=400, detail="Operação Negada: O Desconto não pode exceder 50% do valor total.")
+
     conn = get_db()
     cursor = conn.cursor()
     try:
         total_com_desconto = max(0, pedido.total - pedido.desconto)
         
-        # 1. Resolve o Cliente (Se não enviado, busca/cria Consumidor Final)
         cliente_id = pedido.cliente_id
         if not cliente_id:
             cursor.execute("SELECT ID_Cliente FROM Cliente WHERE Email = 'consumidor@final.com'")
@@ -302,12 +325,10 @@ async def finalizar_compra(pedido: CheckoutPayload, user=Depends(get_user_from_t
                 cursor.execute("INSERT INTO Cliente (Nome, Email, Senha, Role) VALUES ('Consumidor Final', 'consumidor@final.com', '123456', 'CLIENTE')")
                 cliente_id = cursor.lastrowid
 
-        # 2. Cria o Pedido
         cursor.execute("INSERT INTO Pedido (ID_Cliente, Valor_Total, Status_Pedido) VALUES (?, ?, 'Aprovado')", 
                        (cliente_id, total_com_desconto))
         pedido_id = cursor.lastrowid
         
-        # 3. Processa Estoque e Itens
         for item in pedido.itens:
             cursor.execute("SELECT tamanhos FROM Produto WHERE ID_Produto = ?", (item.produto_id,))
             prod = cursor.fetchone()
@@ -324,7 +345,6 @@ async def finalizar_compra(pedido: CheckoutPayload, user=Depends(get_user_from_t
             cursor.execute("UPDATE Produto SET Quantidade_Estoque = Quantidade_Estoque - ?, tamanhos = ? WHERE ID_Produto = ?", 
                            (item.quantidade, json.dumps(grade_tamanhos), item.produto_id))
         
-        # 4. Processa Pagamento
         if pedido.pagamento:
             metodo = pedido.pagamento.metodo
             cursor.execute("INSERT INTO Pagamento (ID_Pedido, Valor, Status, Tipo_Pagamento) VALUES (?, ?, 'Aprovado', ?)",

@@ -5,7 +5,6 @@ export default function ProductCard({ produto, onAdicionar }) {
     <div className="bg-zenkai-surface border border-zenkai-border rounded-xl overflow-hidden flex flex-col transition-transform hover:scale-[1.02] hover:border-zenkai-neonBlue/50 duration-300">
       
       <div className="h-48 bg-[#111] flex items-center justify-center p-4 relative">
-        {/* IMAGEM CORRIGIDA: Usa diretamente produto.imagem que já vem com http://localhost:8000 do main.py */}
         <img 
           src={produto.imagem || 'https://via.placeholder.com/300?text=Sem+Imagem'} 
           alt={produto.nome} 

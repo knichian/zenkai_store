@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Package, Search, ShoppingCart, LogOut, Plus, Trash2, UploadCloud, CheckCircle2, X, Users, Banknote, CreditCard, QrCode, Printer } from 'lucide-react';
+import { Package, Search, ShoppingCart, LogOut, Plus, Trash2, UploadCloud, CheckCircle2, X, Users, Banknote, CreditCard, QrCode, Printer, BarChart3, TrendingUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 
 export default function PdvVendedor() {
   const [produtos, setProdutos] = useState([]);
   const [venda, setVenda] = useState([]);
-  const [aba, setAba] = useState('venda');
+  const [aba, setAba] = useState('venda'); // venda, estoque, dashboard
   const [loading, setLoading] = useState(false);
   const [busca, setBusca] = useState('');
   
@@ -32,6 +32,9 @@ export default function PdvVendedor() {
   const [modalNovoCliente, setModalNovoCliente] = useState(false);
   const [formCliente, setFormCliente] = useState({ nome: '', email: '', telefone: '' });
 
+  // ESTADO DO DASHBOARD
+  const [dashData, setDashData] = useState(null);
+
   const nav = useNavigate();
   const fileRef = useRef(null);
 
@@ -39,13 +42,20 @@ export default function PdvVendedor() {
   const [grade, setGrade] = useState([{ tamanho: '', qtd: '' }]);
 
   const loadDados = async () => {
-    try { setProdutos(await api.getProdutos()); } 
-    catch (e) { console.error(e); }
+    try { setProdutos(await api.getProdutos()); } catch (e) { console.error(e); }
+  };
+
+  const loadDashboard = async () => {
+    try { setDashData(await api.getDashboard()); } catch (e) { console.error(e); }
   };
 
   useEffect(() => { loadDados(); }, []);
 
-  // EFEITO DE BUSCA CRM AO VIVO
+  // Recarrega o Dashboard sempre que o usuário clicar na aba dele
+  useEffect(() => {
+    if (aba === 'dashboard') loadDashboard();
+  }, [aba]);
+
   useEffect(() => {
     if (clienteBusca.length >= 3) {
       api.buscarClientes(clienteBusca).then(setClientesEncontrados);
@@ -54,12 +64,20 @@ export default function PdvVendedor() {
     }
   }, [clienteBusca]);
 
-  // CÁLCULOS FINANCEIROS DO PDV
+  // CÁLCULOS FINANCEIROS & TRAVA DE DESCONTO DE 50%
   const subtotal = venda.reduce((a, i) => a + (i.preco * i.qtd), 0);
-  const valorDescontoCalc = descontoTipo === 'R$' 
-    ? Number(descontoValor || 0) 
-    : subtotal * (Number(descontoValor || 0) / 100);
-  const totalComDesconto = Math.max(0, subtotal - valorDescontoCalc);
+  
+  let descontoCalculado = descontoTipo === 'R$' ? Number(descontoValor || 0) : subtotal * (Number(descontoValor || 0) / 100);
+  let limiteExcedido = false;
+
+  // Lógica da trava
+  const maxDescontoPermitido = subtotal * 0.5;
+  if (descontoCalculado > maxDescontoPermitido) {
+    descontoCalculado = maxDescontoPermitido;
+    limiteExcedido = true;
+  }
+
+  const totalComDesconto = Math.max(0, subtotal - descontoCalculado);
   const troco = metodoPgto === 'DINHEIRO' ? Math.max(0, Number(valorRecebido || 0) - totalComDesconto) : 0;
 
   const processarPagamento = async () => {
@@ -72,7 +90,7 @@ export default function PdvVendedor() {
     try {
       const payload = {
         total: subtotal,
-        desconto: valorDescontoCalc,
+        desconto: descontoCalculado, // Envia o desconto já limitado
         cliente_id: clienteSelecionado ? clienteSelecionado.id : null,
         itens: venda.map(i => ({ produto_id: i.id, tamanho: i.tamanho, quantidade: i.qtd, preco_unitario: i.preco })),
         pagamento: {
@@ -84,16 +102,10 @@ export default function PdvVendedor() {
 
       await api.checkout(payload);
       
-      // Gera os dados para o Recibo
       setReciboData({
-        itens: [...venda],
-        subtotal,
-        desconto: valorDescontoCalc,
-        total: totalComDesconto,
-        metodo: metodoPgto,
-        valorPago: metodoPgto === 'DINHEIRO' ? Number(valorRecebido) : totalComDesconto,
-        troco,
-        cliente: clienteSelecionado ? clienteSelecionado.nome : 'Consumidor Final',
+        itens: [...venda], subtotal, desconto: descontoCalculado, total: totalComDesconto,
+        metodo: metodoPgto, valorPago: metodoPgto === 'DINHEIRO' ? Number(valorRecebido) : totalComDesconto,
+        troco, cliente: clienteSelecionado ? clienteSelecionado.nome : 'Consumidor Final',
         data: new Date().toLocaleString('pt-BR')
       });
 
@@ -109,12 +121,9 @@ export default function PdvVendedor() {
   };
 
   const resetCheckoutStates = () => {
-    setClienteBusca('');
-    setClienteSelecionado(null);
-    setDescontoValor('');
-    setValorRecebido('');
-    setParcelas(1);
-    setMetodoPgto('DINHEIRO');
+    setClienteBusca(''); setClienteSelecionado(null);
+    setDescontoValor(''); setValorRecebido('');
+    setParcelas(1); setMetodoPgto('DINHEIRO');
   };
 
   const handleCadastro = async (e) => {
@@ -182,10 +191,10 @@ export default function PdvVendedor() {
           ZEN<span className="text-[#39ff14]">KAI</span> <span className="text-[10px] text-gray-500 uppercase tracking-widest align-top">PDV</span>
         </h1>
         <nav className="flex-1 space-y-2">
-          {['venda', 'estoque'].map(a => (
-            <button key={a} onClick={() => setAba(a)} className={`w-full flex items-center justify-center lg:justify-start gap-4 p-4 rounded-xl font-bold transition-all ${aba === a ? 'bg-[#39ff14]/10 text-[#39ff14] border border-[#39ff14]/20' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
-              {a === 'venda' ? <ShoppingCart size={22}/> : <Package size={22}/>}
-              <span className="hidden lg:block capitalize">{a}</span>
+          {[{id: 'venda', icon: <ShoppingCart size={22}/>}, {id: 'estoque', icon: <Package size={22}/>}, {id: 'dashboard', icon: <BarChart3 size={22}/>}].map(a => (
+            <button key={a.id} onClick={() => setAba(a.id)} className={`w-full flex items-center justify-center lg:justify-start gap-4 p-4 rounded-xl font-bold transition-all ${aba === a.id ? 'bg-[#39ff14]/10 text-[#39ff14] border border-[#39ff14]/20' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
+              {a.icon}
+              <span className="hidden lg:block capitalize">{a.id}</span>
             </button>
           ))}
         </nav>
@@ -195,7 +204,71 @@ export default function PdvVendedor() {
       </aside>
 
       <main className="flex-1 flex flex-col p-8 overflow-hidden bg-[#0f1115] relative">
-        {aba === 'venda' ? (
+        
+        {aba === 'dashboard' && (
+          <div className="h-full flex flex-col overflow-y-auto custom-scrollbar pr-2">
+            <h2 className="text-2xl font-black mb-8 text-[#39ff14] flex items-center gap-3"><TrendingUp/> DASHBOARD DE VENDAS</h2>
+            
+            {!dashData ? (
+              <div className="flex-1 flex items-center justify-center text-[#39ff14] animate-pulse font-mono">CARREGANDO MÉTRICAS...</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                  <div className="bg-[#161920] border border-white/10 p-6 rounded-2xl">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Faturamento Hoje</p>
+                    <p className="text-3xl font-black text-white font-mono">R$ {dashData.faturamento_hoje.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-[#161920] border border-white/10 p-6 rounded-2xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-[#39ff14] opacity-5 rounded-bl-full"></div>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Faturamento no Mês</p>
+                    <p className="text-3xl font-black text-[#39ff14] font-mono">R$ {dashData.faturamento_mes.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-[#161920] border border-white/10 p-6 rounded-2xl">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Ticket Médio (Mês)</p>
+                    <p className="text-3xl font-black text-white font-mono">R$ {dashData.ticket_medio.toFixed(2)}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="bg-[#161920] border border-white/10 p-6 rounded-2xl">
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-6 border-b border-white/10 pb-4">Receita por Forma de Pagamento (Mês)</h3>
+                    <div className="space-y-4">
+                      {['PIX', 'CARTAO', 'DINHEIRO'].map(tipo => {
+                        const valor = dashData.pagamentos[tipo] || 0;
+                        const porcentagem = dashData.faturamento_mes > 0 ? (valor / dashData.faturamento_mes) * 100 : 0;
+                        return (
+                          <div key={tipo}>
+                            <div className="flex justify-between text-sm mb-1 font-bold">
+                              <span>{tipo}</span> <span className="font-mono">R$ {valor.toFixed(2)}</span>
+                            </div>
+                            <div className="w-full bg-black rounded-full h-2">
+                              <div className="bg-[#39ff14] h-2 rounded-full" style={{ width: `${porcentagem}%` }}></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="bg-[#161920] border border-white/10 p-6 rounded-2xl">
+                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-6 border-b border-white/10 pb-4">Top 5 Produtos mais Vendidos</h3>
+                     <div className="space-y-3">
+                       {dashData.top_produtos.map((p, idx) => (
+                         <div key={idx} className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                           <span className="font-bold text-sm text-gray-200"><span className="text-[#39ff14] mr-2">#{idx+1}</span> {p.nome}</span>
+                           <span className="text-xs font-mono bg-white/10 px-2 py-1 rounded text-white">{p.qtd} UNID.</span>
+                         </div>
+                       ))}
+                       {dashData.top_produtos.length === 0 && <p className="text-gray-500 text-sm text-center py-4">Nenhuma venda registrada.</p>}
+                     </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {aba === 'venda' && (
           <div className="h-full flex flex-col">
              <div className="relative mb-6">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
@@ -216,7 +289,9 @@ export default function PdvVendedor() {
               </div>
             </div>
           </div>
-        ) : (
+        )}
+
+        {aba === 'estoque' && (
           <div className="h-full flex flex-col pb-4">
             <h2 className="text-2xl font-black mb-6 text-[#39ff14] flex items-center gap-3"><Package/> GERENCIADOR</h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-160px)]">
@@ -351,9 +426,8 @@ export default function PdvVendedor() {
       {/* MODAL 2: TERMINAL DE PAGAMENTO COMPLETO */}
       {modalPagamento && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-[#161920] border border-[#39ff14]/30 p-8 rounded-3xl w-full max-w-4xl flex shadow-[0_0_50px_rgba(57,255,20,0.1)] h-[600px] overflow-hidden">
+          <div className="bg-[#161920] border border-[#39ff14]/30 p-8 rounded-3xl w-full max-w-4xl flex shadow-[0_0_50px_rgba(57,255,20,0.1)] h-[600px] overflow-hidden relative">
             
-            {/* Lado Esquerdo: Dados do Cliente e Descontos */}
             <div className="flex-1 border-r border-white/10 pr-8 flex flex-col">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-black text-white flex items-center gap-3"><Users className="text-[#39ff14]"/> IDENTIFICAÇÃO</h2>
@@ -394,8 +468,8 @@ export default function PdvVendedor() {
                 {!clienteSelecionado && <p className="text-xs text-gray-500 mt-3">* Se não selecionar, a venda será para <b>Consumidor Final</b>.</p>}
               </div>
 
-              <div className="mt-auto bg-black/50 p-6 rounded-2xl border border-white/5">
-                <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Desconto de Balcão</h3>
+              <div className="mt-auto bg-black/50 p-6 rounded-2xl border border-white/5 relative">
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Desconto de Balcão (Máx 50%)</h3>
                 <div className="flex gap-2">
                   <select value={descontoTipo} onChange={(e)=>setDescontoTipo(e.target.value)} className="bg-[#161920] border border-white/10 rounded-xl px-4 focus:outline-none focus:border-[#39ff14]">
                     <option value="R$">R$</option>
@@ -403,10 +477,15 @@ export default function PdvVendedor() {
                   </select>
                   <input type="number" placeholder="0.00" value={descontoValor} onChange={(e)=>setDescontoValor(e.target.value)} className="flex-1 bg-[#161920] border border-white/10 p-4 rounded-xl focus:outline-none focus:border-[#39ff14] font-mono text-lg" />
                 </div>
+                {/* AVISO DE TRAVA DE DESCONTO */}
+                {limiteExcedido && (
+                  <p className="text-xs text-red-500 mt-2 font-bold flex items-center gap-1">
+                     Limite operacional excedido. Desconto ajustado para 50% do total.
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Lado Direito: Fechamento e Pagamento */}
             <div className="flex-1 pl-8 flex flex-col">
               <div className="flex justify-between items-start mb-6">
                 <h2 className="text-2xl font-black text-white flex items-center gap-3"><Banknote className="text-[#39ff14]"/> PAGAMENTO</h2>
@@ -427,7 +506,7 @@ export default function PdvVendedor() {
               <div className="flex-1 flex flex-col justify-center space-y-4">
                 {metodoPgto === 'DINHEIRO' && (
                   <div>
-                     <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Valor Recebido do Cliente (R$)</label>
+                     <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Valor Recebido (R$)</label>
                      <input type="number" value={valorRecebido} onChange={(e)=>setValorRecebido(e.target.value)} className="w-full bg-black border border-[#39ff14]/30 p-4 rounded-xl focus:outline-none focus:border-[#39ff14] font-mono text-2xl text-[#39ff14]" placeholder="0.00" />
                      {troco > 0 && <div className="mt-4 p-4 bg-orange-500/10 border border-orange-500/30 rounded-xl"><p className="text-sm text-orange-400 uppercase font-bold text-center">Troco a devolver: <span className="text-2xl block font-mono text-white mt-1">R$ {troco.toFixed(2)}</span></p></div>}
                   </div>
@@ -455,10 +534,10 @@ export default function PdvVendedor() {
                   <span className="text-gray-400 text-sm">Subtotal</span>
                   <span className="font-mono text-white">R$ {subtotal.toFixed(2)}</span>
                 </div>
-                {valorDescontoCalc > 0 && (
+                {descontoCalculado > 0 && (
                   <div className="flex justify-between items-center mb-4 text-red-400">
                     <span className="text-sm">Desconto Aplicado</span>
-                    <span className="font-mono">- R$ {valorDescontoCalc.toFixed(2)}</span>
+                    <span className="font-mono">- R$ {descontoCalculado.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-end mb-6">
@@ -519,7 +598,7 @@ export default function PdvVendedor() {
         </div>
       )}
 
-      {/* MODAL 4: CADASTRO RÁPIDO DE CLIENTE */}
+      
       {modalNovoCliente && (
         <div className="fixed inset-0 bg-black/90 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-[#161920] border border-[#39ff14]/30 p-8 rounded-3xl w-full max-w-md shadow-2xl relative">

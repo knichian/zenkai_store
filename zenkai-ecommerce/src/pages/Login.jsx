@@ -45,7 +45,7 @@ export default function Login() {
     } else {
       // --- MODO CADASTRO ---
       try {
-        // Agora o cadastro SEMPRE força a criação de um CLIENTE
+        //cadastro SEMPRE força a criação de um CLIENTE
         const response = await fetch('http://127.0.0.1:8000/zenkai/api/cadastro', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
